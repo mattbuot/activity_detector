@@ -80,11 +80,116 @@ public class SampleAsyncCallBack implements MqttCallback {
 	 */
 	public static void main(String[] args) {
 		//readFromMQTT();
+
 		try {
 			readFromCSV();
 		} catch (IOException e) {
 			System.out.println(e.getMessage());
 		}
+		/*
+		try {
+			runDetectionFromCSV();
+		} catch (IOException e) {
+			System.out.println(e.getMessage());
+		}*/
+	}
+
+	private static void runDetectionFromCSV() throws IOException {
+		final String INPUT_1_PATH = "data_collect_2018_03_20_13_52_12.csv";
+		final String INPUT_2_PATH = "data_collect_2018_03_20_14_08_54.csv";
+		final int FILE_NUMBER = 2;
+		String inputPath = (FILE_NUMBER == 1)? INPUT_1_PATH : INPUT_2_PATH;
+
+		final int nestedMovingAverageWindow = 4;
+		final int outerMovingAverageWindow = 25;
+		final double verticalThreshold = 0.0085;
+		final int horizontalThreshold = 12;
+
+		List<Double> MA1Pressures = new ArrayList<>();
+		List<Double> MA2Pressures = new ArrayList<>();
+		List<Double> MA3Pressures = new ArrayList<>();
+		List<Double> DMA3Pressures = new ArrayList<>();
+		List<Double> MA1DMA3Pressures = new ArrayList<>();
+		List<Double> AMA1DMA3Pressures = new ArrayList<>();
+
+		int pressureSamples = 0;
+		int aboveThresholdCounter = 0;
+		boolean isChangingFloor = false;
+		String line;
+		BufferedReader reader = new BufferedReader(new FileReader(inputPath));
+		try {
+			line = reader.readLine();
+			while (line != null) {
+				loadLine(line);
+				if(pressures.size() > pressureSamples) {
+					pressureSamples = pressures.size();
+					int begin = pressures.size()-nestedMovingAverageWindow;
+					int end = pressures.size();
+					MA1Pressures.add(listAverage(pressures, begin, end));
+					MA2Pressures.add(listAverage(MA1Pressures, begin, end));
+					MA3Pressures.add(listAverage(MA2Pressures, begin, end));
+					DMA3Pressures.add(endDiff(MA3Pressures));
+					begin = pressures.size()-outerMovingAverageWindow;
+					MA1DMA3Pressures.add(listAverage(DMA3Pressures, begin, end));
+					AMA1DMA3Pressures.add(Math.abs(MA1DMA3Pressures.get(end-1)));
+
+					if(isChangingFloor) {
+						if(AMA1DMA3Pressures.get(end-1) <= verticalThreshold) {
+							isChangingFloor = false;
+							System.out.println("Staying at floor at sample number " + pressureSamples);
+						}
+					} else {
+						if(AMA1DMA3Pressures.get(end-1) > verticalThreshold) {
+							aboveThresholdCounter++;
+						} else {
+							aboveThresholdCounter = 0;
+						}
+						if(aboveThresholdCounter >= horizontalThreshold) {
+							System.out.println("Changing floor at sample number " + pressureSamples);
+							isChangingFloor = true;
+							aboveThresholdCounter = 0;
+						}
+					}
+				}
+
+				line = reader.readLine();
+			}
+		} finally {
+			reader.close();
+		}
+	}
+
+	private static void loadLine(String line) {
+		String[] informations = line.split(",");
+		switch (informations[1]) {
+            case "a":
+                double[] acceleration = new double[3];
+                acceleration[0] = Double.parseDouble(informations[2]);
+                acceleration[1] = Double.parseDouble(informations[3]);
+                acceleration[2] = Double.parseDouble(informations[4]);
+                accelerations.add(acceleration);
+                break;
+
+            case "b":
+                pressures.add(Double.parseDouble(informations[2]));
+                break;
+
+            case "h":
+                humidities.add(Double.parseDouble(informations[2]));
+                break;
+
+            case "l":
+                lights.add(Double.parseDouble(informations[2]));
+                break;
+
+            case "t":
+                temperatures.add(Double.parseDouble(informations[2]));
+                break;
+
+            default:
+                System.out.println("Non parsed message");
+                break;
+        }
 	}
 
 	private static void readFromCSV() throws IOException {
@@ -96,10 +201,11 @@ public class SampleAsyncCallBack implements MqttCallback {
 		final String OUTPUT_PRESSURE_TRIPLE_MOVING_AVERAGE = "pressure3MA";
 		final String OUTPUT_PRESSURE_MOVING_VARIANCES = "pressureMV";
 		final String OUTPUT_WALKING = "walking";
+		final String OUTPUT_PRESSURE_DTMA = "pressureDTMA";
+		final String OUTPUT_ACCEL = "accel";
 
-
-		final int FILE_NUMBER = 2;
-		final String OUTPUT_BASE = OUTPUT_WALKING;
+		final int FILE_NUMBER = 1;
+		final String OUTPUT_BASE = OUTPUT_ACCEL;
 
 		String inputPath = (FILE_NUMBER == 1)? INPUT_1_PATH : INPUT_2_PATH;
 
@@ -136,6 +242,9 @@ public class SampleAsyncCallBack implements MqttCallback {
 
 		//List<Double> result = leftMovingVariance(pressures, 6);
 
+		//List<Double> result=pressures;
+
+
 		PrintWriter writer = new PrintWriter(outputPath, "UTF-8");
 		for(int i = 0; i < result.size(); i++){
 			writer.println(result.get(i));
@@ -157,36 +266,7 @@ public class SampleAsyncCallBack implements MqttCallback {
 		}
 
 		for (String line : list) {
-			String[] informations = line.split(",");
-			switch (informations[1]) {
-				case "a":
-					double[] acceleration = new double[3];
-					acceleration[0] = Double.parseDouble(informations[2]);
-					acceleration[1] = Double.parseDouble(informations[3]);
-					acceleration[2] = Double.parseDouble(informations[4]);
-					accelerations.add(acceleration);
-					break;
-
-				case "b":
-					pressures.add(Double.parseDouble(informations[2]));
-					break;
-
-				case "h":
-					humidities.add(Double.parseDouble(informations[2]));
-					break;
-
-				case "l":
-					lights.add(Double.parseDouble(informations[2]));
-					break;
-
-				case "t":
-					temperatures.add(Double.parseDouble(informations[2]));
-					break;
-
-				default:
-					System.out.println("Non parsed message");
-					break;
-			}
+			loadLine(line);
 		}
 
 		System.out.println(accelerations.size() + " acceleration samples");
@@ -198,57 +278,47 @@ public class SampleAsyncCallBack implements MqttCallback {
 
 	private static List<Double> differences(List<Double> input) {
 		List<Double> differences = new ArrayList<>();
-		for (int i = 0; i+1 < input.size(); i++) {
-			differences.add(input.get(i+1) - input.get(i));
+		differences.add(0.0);
+		for (int i = 1; i < input.size(); i++) {
+			differences.add(input.get(i) - input.get(i-1));
 		}
-		differences.add(differences.get(differences.size()-1));
 		return differences;
+	}
+
+	private static List<Double> absolute(List<Double> input) {
+		List<Double> absolutes = new ArrayList<>();
+		for (Double d: input) {
+			absolutes.add(Math.abs(d));
+		}
+		return absolutes;
 	}
 
 	private static List<Double> leftMovingAverage(List<Double> input, int leftWindowSize) {
 		List<Double> movingAverages = new ArrayList<>();
 		for (int i = 0; i < leftWindowSize - 1; i++) {
-			double sum = 0;
-			for(int j = -i; j <= 0; j++) {
-				sum += input.get(i+j);
-			}
-			movingAverages.add(sum/(i+1));
+			movingAverages.add(listAverage(input, 0, i+1));
 		}
 		for (int i = leftWindowSize - 1; i < input.size(); i++) {
-			double sum = 0;
-			for(int j = -leftWindowSize + 1; j <= 0; j++) {
-				sum += input.get(i+j);
-			}
-			movingAverages.add(sum/leftWindowSize);
+			movingAverages.add(listAverage(input, i-leftWindowSize+1, i+1));
 		}
 		return movingAverages;
 	}
 
 	private static List<Double> centeredMovingAverage(List<Double> input, int halfWindowSize) {
-		List<Double> movingAveragePressures = new ArrayList<>();
+		List<Double> movingAverages = new ArrayList<>();
 		for (int i = 0; i < halfWindowSize; i++) {
-			movingAveragePressures.add(0.0);
+			movingAverages.add(0.0);
 		}
 		for (int i = halfWindowSize; i < input.size()-halfWindowSize; i++) {
-			double sum = 0;
-			for(int j = -halfWindowSize; j <= halfWindowSize; j++) {
-				sum += input.get(i+j);
-			}
-			movingAveragePressures.add(sum/(halfWindowSize*2+1));
+			movingAverages.add(listAverage(input, i-halfWindowSize, i+halfWindowSize+1));
 		}
 		for (int i = 0; i < halfWindowSize; i++) {
-			movingAveragePressures.set(i, movingAveragePressures.get(halfWindowSize));
+			movingAverages.set(i, movingAverages.get(halfWindowSize));
 		}
 		for (int i = input.size()-halfWindowSize; i < input.size(); i++) {
-			movingAveragePressures.add(movingAveragePressures.get(input.size()-halfWindowSize-1));
+			movingAverages.add(movingAverages.get(input.size()-halfWindowSize-1));
 		}
-		return movingAveragePressures;
-	}
-
-	private static List<Double> trend(List<Double> input, int leftWindowSize) {
-		List<Double> trends = new ArrayList<>();
-
-		return trends;
+		return movingAverages;
 	}
 
 	private static List<Double> leftMovingVariance(List<Double> input, int leftWindowSize) {
@@ -318,22 +388,42 @@ public class SampleAsyncCallBack implements MqttCallback {
 	//this function calculates the moving variance at a specified index, with a specified number of samples before
 	// and after the index (as defined in lecture 2 slide 25)
 	private static double movingVariance(List<Double> accelerations, int numberOfSamples, int index) {
-		if((index - numberOfSamples) < 0 || (index + numberOfSamples) >= accelerations.size()) {
+		if ((index - numberOfSamples) < 0 || (index + numberOfSamples) >= accelerations.size()) {
 			System.out.println("Error : calculating moving variance at wrong index");
 			return 0;
 		}
 
 		double sum = 0.0;
-		for(int i = index - numberOfSamples; i <= index + numberOfSamples; i++) {
+		for (int i = index - numberOfSamples; i <= index + numberOfSamples; i++) {
 			sum += accelerations.get(i);
 		}
-		double average = sum / (2*numberOfSamples +1);
+		double average = sum / (2 * numberOfSamples + 1);
 
 		sum = 0.0;
-		for(int i = index - numberOfSamples; i <= index + numberOfSamples; i++) {
+		for (int i = index - numberOfSamples; i <= index + numberOfSamples; i++) {
 			sum += Math.pow(accelerations.get(i) - average, 2);
 		}
-		return sum /(2*numberOfSamples +1);
+		return sum / (2 * numberOfSamples + 1);
+	}
+
+	private static Double listAverage(List<Double> input, int begin, int end) {
+		Double sum = 0.0;
+		if(begin < 0) {
+			begin = 0;
+		}
+		for (int i = begin; i < end; i++) {
+			sum += input.get(i);
+		}
+		return sum/(end-begin);
+	}
+
+	private static Double endDiff(List<Double> input) {
+		if(input.size() == 0 || input.size() == 1) {
+			return 0.0;
+		} else {
+			return (input.get(input.size()-1) - input.get(input.size()-2));
+		}
+
 	}
 
 	private static void readFromMQTT() {
