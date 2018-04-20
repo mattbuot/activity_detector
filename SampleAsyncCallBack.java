@@ -18,9 +18,7 @@ package org.eclipse.paho.sample.mqttv3app;
 
 import java.io.IOException;
 import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 import org.eclipse.paho.client.mqttv3.IMqttActionListener;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
@@ -80,18 +78,18 @@ public class SampleAsyncCallBack implements MqttCallback {
 	 */
 	public static void main(String[] args) {
 		//readFromMQTT();
-
+		/*
 		try {
 			readFromCSV();
 		} catch (IOException e) {
 			System.out.println(e.getMessage());
-		}
-		/*
+		}*/
+
 		try {
 			runDetectionFromCSV();
 		} catch (IOException e) {
 			System.out.println(e.getMessage());
-		}*/
+		}
 	}
 
 	private static void runDetectionFromCSV() throws IOException {
@@ -136,7 +134,7 @@ public class SampleAsyncCallBack implements MqttCallback {
 					if(isChangingFloor) {
 						if(AMA1DMA3Pressures.get(end-1) <= verticalThreshold) {
 							isChangingFloor = false;
-							System.out.println("Staying at floor at sample number " + pressureSamples);
+							System.out.println(pressureSampleToTimestamp.get(pressureSamples-1) + ",NOFLOORCHANGE");
 						}
 					} else {
 						if(AMA1DMA3Pressures.get(end-1) > verticalThreshold) {
@@ -145,7 +143,7 @@ public class SampleAsyncCallBack implements MqttCallback {
 							aboveThresholdCounter = 0;
 						}
 						if(aboveThresholdCounter >= horizontalThreshold) {
-							System.out.println("Changing floor at sample number " + pressureSamples);
+							System.out.println(pressureSampleToTimestamp.get(pressureSamples-1) + ",FLOORCHANGE");
 							isChangingFloor = true;
 							aboveThresholdCounter = 0;
 						}
@@ -168,10 +166,12 @@ public class SampleAsyncCallBack implements MqttCallback {
                 acceleration[1] = Double.parseDouble(informations[3]);
                 acceleration[2] = Double.parseDouble(informations[4]);
                 accelerations.add(acceleration);
+                accelerationSampleToTimestamp.put(accelerations.size()-1, Integer.parseInt(informations[0]));
                 break;
 
             case "b":
                 pressures.add(Double.parseDouble(informations[2]));
+				pressureSampleToTimestamp.put(pressures.size()-1, Integer.parseInt(informations[0]));
                 break;
 
             case "h":
@@ -533,7 +533,8 @@ public class SampleAsyncCallBack implements MqttCallback {
 	private static List<Double> humidities = new ArrayList<>();
 	private static List<Integer> stepCount = new ArrayList<>();
 	private static List<Double> resultTest = new ArrayList<>();
-
+	private static Map<Integer, Integer> pressureSampleToTimestamp = new HashMap<>();
+	private static Map<Integer, Integer> accelerationSampleToTimestamp = new HashMap<>();
 
 	/**
 	 * Constructs an instance of the sample client wrapper
