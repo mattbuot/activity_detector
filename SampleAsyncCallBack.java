@@ -70,6 +70,8 @@ public class SampleAsyncCallBack implements MqttCallback {
 	static final int ERROR = 6;
 	static final int DISCONNECT = 7;
 
+	private static final int WALKING_WINDOW_SIZE = 250;
+
 	/**
 	 * The main entry point of the sample.
 	 *
@@ -93,10 +95,11 @@ public class SampleAsyncCallBack implements MqttCallback {
 		final String OUTPUT_PRESSURE_DOUBLE_MOVING_AVERAGE = "pressure2MA";
 		final String OUTPUT_PRESSURE_TRIPLE_MOVING_AVERAGE = "pressure3MA";
 		final String OUTPUT_PRESSURE_MOVING_VARIANCES = "pressureMV";
+		final String OUTPUT_WALKING = "walking";
 
 
 		final int FILE_NUMBER = 2;
-		final String OUTPUT_BASE = OUTPUT_PRESSURE_MOVING_VARIANCES;
+		final String OUTPUT_BASE = OUTPUT_WALKING;
 
 		String inputPath = (FILE_NUMBER == 1)? INPUT_1_PATH : INPUT_2_PATH;
 
@@ -104,7 +107,34 @@ public class SampleAsyncCallBack implements MqttCallback {
 
 		loadDataFromCSV(inputPath);
 
-		List<Double> result = leftMovingVariance(pressures, 6);
+		List<Double> result = new ArrayList<>();
+		int stepDifference = 0;
+
+		/*for(int i = WALKING_WINDOW_SIZE; i < accelerations.size() - WALKING_WINDOW_SIZE; i += WALKING_WINDOW_SIZE) { // the last seconds will be considered as idle
+			stepDifference += stepCount(accelerations, i, WALKING_WINDOW_SIZE);
+
+			System.out.println("Step difference : " + stepDifference);
+			for(int j = 0; j < WALKING_WINDOW_SIZE; j++) {
+				result.add((double) stepDifference);
+			}
+
+			/*if(stepDifference > 2) {
+				for(int j = 0; j < WALKING_WINDOW_SIZE; j++) {
+					result.add(1.0);
+				}
+			}
+			else {
+				for(int j = 0; j < WALKING_WINDOW_SIZE; j++) {
+					result.add(0.0);
+				}
+			}
+
+		}*/
+
+		stepCount(accelerations, 0, accelerations.size());
+		result = resultTest;
+
+		//List<Double> result = leftMovingVariance(pressures, 6);
 
 		PrintWriter writer = new PrintWriter(outputPath, "UTF-8");
 		for(int i = 0; i < result.size(); i++){
@@ -238,6 +268,74 @@ public class SampleAsyncCallBack implements MqttCallback {
 		return movingVariances;
 	}
 
+	private static Integer stepCount(List<double[]> input, int startingIndex, int windowSize) {
+		
+		final int W = 12;       //moving variance is computed from i-W to i+W for index i
+		final double T1 = 0.14;  //threshold value 1
+		final double T2 = 0.13;  //threshold value 2
+
+		List<double[]> accelerationsTruncated = new ArrayList<double[]>();
+		List<Double> magnitudes = new ArrayList<Double>();
+		List<Double> movingStandardDeviation = new ArrayList<Double>();
+		List<Integer> phases = new ArrayList<Integer>();
+
+		int step = 0;
+
+		for (int j = startingIndex; j < startingIndex + windowSize; j++) {
+			double[] emptyArr = {0.0, 0.0, 0.0};
+			accelerationsTruncated.add(emptyArr);
+			phases.add(2);
+			double sum = 0.0;
+			for(int i = 0; i < 3; i++) {
+				accelerationsTruncated.get(accelerationsTruncated.size() - 1)[i] = input.get(j)[i];
+				sum += Math.pow(accelerationsTruncated.get(accelerationsTruncated.size() - 1)[i], 2);
+			}
+			magnitudes.add(Math.sqrt(sum));
+			movingStandardDeviation.add(0.0);
+		}
+
+		//We add a step each time the phase goes from swing to stance
+		boolean hasBeenInSwingPhase = false;
+		for(int i = W; i < accelerationsTruncated.size() - W; i++) {
+			movingStandardDeviation.set(i, Math.sqrt(movingVariance(magnitudes, W, i)));
+			resultTest.add(movingStandardDeviation.get(i));
+			if(movingStandardDeviation.get(i) > T1) {
+				phases.set(i, 1);   //swing phase
+				hasBeenInSwingPhase = true;
+			} else if (movingStandardDeviation.get(i) > T2) {
+				phases.set(i, 0);   //in-between phase
+			} else {
+				if(hasBeenInSwingPhase) {
+					hasBeenInSwingPhase = false;
+					step++;
+				}
+				phases.set(i, 2);   //stance phase
+			}
+		}
+		return step;
+	}
+
+	//this function calculates the moving variance at a specified index, with a specified number of samples before
+	// and after the index (as defined in lecture 2 slide 25)
+	private static double movingVariance(List<Double> accelerations, int numberOfSamples, int index) {
+		if((index - numberOfSamples) < 0 || (index + numberOfSamples) >= accelerations.size()) {
+			System.out.println("Error : calculating moving variance at wrong index");
+			return 0;
+		}
+
+		double sum = 0.0;
+		for(int i = index - numberOfSamples; i <= index + numberOfSamples; i++) {
+			sum += accelerations.get(i);
+		}
+		double average = sum / (2*numberOfSamples +1);
+
+		sum = 0.0;
+		for(int i = index - numberOfSamples; i <= index + numberOfSamples; i++) {
+			sum += Math.pow(accelerations.get(i) - average, 2);
+		}
+		return sum /(2*numberOfSamples +1);
+	}
+
 	private static void readFromMQTT() {
 		// Default settings:
 		boolean quietMode 	= false;
@@ -329,6 +427,8 @@ public class SampleAsyncCallBack implements MqttCallback {
 	private static List<Double> temperatures = new ArrayList<>();
 	private static List<Double> lights = new ArrayList<>();
 	private static List<Double> humidities = new ArrayList<>();
+	private static List<Integer> stepCount = new ArrayList<>();
+	private static List<Double> resultTest = new ArrayList<>();
 
 
 	/**
