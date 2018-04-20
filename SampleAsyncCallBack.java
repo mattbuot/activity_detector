@@ -204,8 +204,8 @@ public class SampleAsyncCallBack implements MqttCallback {
 		final String OUTPUT_PRESSURE_DTMA = "pressureDTMA";
 		final String OUTPUT_ACCEL = "accel";
 
-		final int FILE_NUMBER = 1;
-		final String OUTPUT_BASE = OUTPUT_ACCEL;
+		final int FILE_NUMBER = 2;
+		final String OUTPUT_BASE = OUTPUT_WALKING;
 
 		String inputPath = (FILE_NUMBER == 1)? INPUT_1_PATH : INPUT_2_PATH;
 
@@ -213,13 +213,13 @@ public class SampleAsyncCallBack implements MqttCallback {
 
 		loadDataFromCSV(inputPath);
 
-		List<Double> result = new ArrayList<>();
+		List<Double> result = sqrt(leftMovingVariance(magnitudes(accelerations), 25));
 		int stepDifference = 0;
 
 		/*for(int i = WALKING_WINDOW_SIZE; i < accelerations.size() - WALKING_WINDOW_SIZE; i += WALKING_WINDOW_SIZE) { // the last seconds will be considered as idle
 			stepDifference += stepCount(accelerations, i, WALKING_WINDOW_SIZE);
 
-			System.out.println("Step difference : " + stepDifference);
+			//System.out.println("Step difference : " + stepDifference);
 			for(int j = 0; j < WALKING_WINDOW_SIZE; j++) {
 				result.add((double) stepDifference);
 			}
@@ -237,8 +237,8 @@ public class SampleAsyncCallBack implements MqttCallback {
 
 		}*/
 
-		stepCount(accelerations, 0, accelerations.size());
-		result = resultTest;
+		//stepCount(accelerations, 0, accelerations.size());
+		//result = resultTest;
 
 		//List<Double> result = leftMovingVariance(pressures, 6);
 
@@ -344,30 +344,19 @@ public class SampleAsyncCallBack implements MqttCallback {
 		final double T1 = 0.14;  //threshold value 1
 		final double T2 = 0.13;  //threshold value 2
 
-		List<double[]> accelerationsTruncated = new ArrayList<double[]>();
-		List<Double> magnitudes = new ArrayList<Double>();
-		List<Double> movingStandardDeviation = new ArrayList<Double>();
+		List<Double> magnitudes = magnitudes(input.subList(startingIndex, startingIndex + windowSize));
+		List<Double> movingStandardDeviation = leftMovingVariance(magnitudes, 12);
 		List<Integer> phases = new ArrayList<Integer>();
-
 		int step = 0;
-
-		for (int j = startingIndex; j < startingIndex + windowSize; j++) {
-			double[] emptyArr = {0.0, 0.0, 0.0};
-			accelerationsTruncated.add(emptyArr);
+		for (int i = startingIndex; i < startingIndex + windowSize; i++) {
 			phases.add(2);
-			double sum = 0.0;
-			for(int i = 0; i < 3; i++) {
-				accelerationsTruncated.get(accelerationsTruncated.size() - 1)[i] = input.get(j)[i];
-				sum += Math.pow(accelerationsTruncated.get(accelerationsTruncated.size() - 1)[i], 2);
-			}
-			magnitudes.add(Math.sqrt(sum));
-			movingStandardDeviation.add(0.0);
+		//	movingStandardDeviation.add(0.0);
 		}
 
 		//We add a step each time the phase goes from swing to stance
 		boolean hasBeenInSwingPhase = false;
-		for(int i = W; i < accelerationsTruncated.size() - W; i++) {
-			movingStandardDeviation.set(i, Math.sqrt(movingVariance(magnitudes, W, i)));
+		for(int i = W; i < windowSize - W; i++) {
+		//	movingStandardDeviation.set(i, Math.sqrt(movingVariance(magnitudes, W, i)));
 			resultTest.add(movingStandardDeviation.get(i));
 			if(movingStandardDeviation.get(i) > T1) {
 				phases.set(i, 1);   //swing phase
@@ -382,6 +371,7 @@ public class SampleAsyncCallBack implements MqttCallback {
 				phases.set(i, 2);   //stance phase
 			}
 		}
+		System.out.println(step);
 		return step;
 	}
 
@@ -424,6 +414,30 @@ public class SampleAsyncCallBack implements MqttCallback {
 			return (input.get(input.size()-1) - input.get(input.size()-2));
 		}
 
+	}
+
+	private static List<Double> magnitudes(List<double[]> input) {
+		List<Double> magnitudes = new ArrayList<>();
+
+		for(int i = 0; i < input.size(); i++) {
+			double sum = 0.0;
+			for(int j = 0; j < 3; j++) {
+				sum += Math.pow(accelerations.get(i)[j], 2);
+			}
+			magnitudes.add(Math.sqrt(sum));
+		}
+
+		return magnitudes;
+	}
+
+	private static List<Double> sqrt(List<Double> input) {
+		List<Double> sqrt = new ArrayList<>();
+
+		for(int i = 0; i < input.size(); i++) {
+			sqrt.add(Math.sqrt(input.get(i)));
+		}
+
+		return sqrt;
 	}
 
 	private static void readFromMQTT() {
